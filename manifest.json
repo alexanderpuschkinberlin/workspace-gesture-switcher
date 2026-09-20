@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "workspace-gesture-switcher",
   "name": "Workspace Gesture Switcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "adminap",
   "license": "MIT",
-  "description": "Configure a macOS-style three-finger trackpad swipe for Hyprland workspaces from the Omarchy bar, with live controls for trigger distance, speed, cancellation, edge creation, and workspace wrapping.",
+  "description": "Set up and configure a macOS-style three-finger trackpad workspace swipe from the Omarchy bar, with safe first-run Hyprland setup plus live sensitivity and workspace controls.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "BarWidget.qml"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-config="$HOME/.config/hypr/input.lua"
+config="${OMARCHY_GESTURE_CONFIG:-$HOME/.config/hypr/input.lua}"
 command="${1:-status}"
 shift || true
 
@@ -9,6 +9,7 @@ python3 - "$config" "$command" "$@" <<'PY'
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 
@@ -18,7 +19,7 @@ args = sys.argv[3:]
 begin = "-- BEGIN omarchy-gesture-control"
 end = "-- END omarchy-gesture-control"
 defaults = {
-    "enabled": True,
+    "enabled": False,
     "distance": 80,
     "cancelRatio": 0.20,
     "minSpeed": 10,
@@ -26,10 +27,16 @@ defaults = {
     "forever": False,
 }
 
+def config_text():
+    if not path.is_file():
+        raise SystemExit("Hyprland input configuration was not found at " + str(path))
+    return path.read_text()
+
 def read_settings():
-    text = path.read_text()
+    text = config_text()
     match = re.search(re.escape(begin) + r"(.*?)" + re.escape(end), text, re.S)
     values = defaults.copy()
+    values["configured"] = bool(match)
     if not match:
         return values
     block = match.group(1)
@@ -69,6 +76,14 @@ def validate(values):
     if not 0 <= values["minSpeed"] <= 100:
         raise ValueError("minSpeed must be between 0 and 100")
 
+def reload_and_validate():
+    result = subprocess.run(["hyprctl", "reload"], text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "Hyprland reload failed")
+    errors = subprocess.run(["hyprctl", "configerrors"], text=True, capture_output=True)
+    if errors.stdout.strip() or errors.returncode:
+        raise RuntimeError(errors.stdout.strip() or errors.stderr.strip() or "Hyprland configuration validation failed")
+
 if command == "status":
     print(json.dumps(read_settings()))
     raise SystemExit(0)
@@ -78,6 +93,7 @@ if command != "set" or len(args) != 2:
 
 key, raw = args
 values = read_settings()
+configured = values.pop("configured")
 if key in ("enabled", "createNew", "forever"):
     if raw not in ("true", "false"):
         raise ValueError(f"{key} must be true or false")
@@ -90,16 +106,25 @@ else:
     raise ValueError(f"unknown setting: {key}")
 validate(values)
 
-text = path.read_text()
+text = config_text()
 pattern = re.escape(begin) + r".*?" + re.escape(end)
-if not re.search(pattern, text, re.S):
-    raise SystemExit("managed gesture block is missing from " + str(path))
-path.write_text(re.sub(pattern, block(values), text, count=1, flags=re.S))
-result = subprocess.run(["hyprctl", "reload"], text=True, capture_output=True)
-if result.returncode:
-    raise SystemExit(result.stderr.strip() or result.stdout.strip() or "Hyprland reload failed")
-errors = subprocess.run(["hyprctl", "configerrors"], text=True, capture_output=True)
-if errors.stdout.strip() or errors.returncode:
-    raise SystemExit(errors.stdout.strip() or errors.stderr.strip() or "Hyprland configuration validation failed")
+if not configured:
+    if key != "enabled" or not values["enabled"]:
+        raise SystemExit("Turn on Workspace Gesture Switcher first to create its Hyprland configuration")
+    backup = path.with_name(path.name + ".backup-workspace-gesture-switcher")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+    updated = text.rstrip() + "\n\n" + block(values) + "\n"
+else:
+    updated = re.sub(pattern, block(values), text, count=1, flags=re.S)
+
+path.write_text(updated)
+try:
+    reload_and_validate()
+except Exception as error:
+    path.write_text(text)
+    subprocess.run(["hyprctl", "reload"], text=True, capture_output=True)
+    raise SystemExit(str(error))
+values["configured"] = True
 print(json.dumps(values))
 PY

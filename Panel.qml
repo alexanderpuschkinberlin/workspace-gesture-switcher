@@ -35,7 +35,7 @@ Panel {
         Column {
           anchors.verticalCenter: parent.verticalCenter
           Text { text: "Workspace Gesture Switcher"; color: root.bar.foreground; font.family: root.bar.fontFamily; font.pixelSize: Style.font.title; font.bold: true }
-          Text { text: hostWidget && hostWidget.enabled ? "Workspace switching enabled" : "Workspace switching disabled"; color: Qt.darker(root.bar.foreground, 1.4); font.family: root.bar.fontFamily; font.pixelSize: Style.font.caption }
+          Text { text: !hostWidget || !hostWidget.configured ? "Turn on once to set up Hyprland" : (hostWidget.enabled ? "Workspace switching enabled" : "Workspace switching disabled"); color: Qt.darker(root.bar.foreground, 1.4); font.family: root.bar.fontFamily; font.pixelSize: Style.font.caption }
         }
       }
 
@@ -43,7 +43,7 @@ Panel {
       Button {
         width: parent.width
         iconText: hostWidget && hostWidget.enabled ? "󰄬" : "󰅖"
-        text: hostWidget && hostWidget.enabled ? "Enabled — turn off" : "Disabled — turn on"
+        text: !hostWidget || !hostWidget.configured ? "Set up and enable" : (hostWidget.enabled ? "Enabled — turn off" : "Disabled — turn on")
         foreground: root.bar.foreground; fontFamily: root.bar.fontFamily; fontSize: Style.font.bodySmall
         bordered: true; active: hostWidget && hostWidget.enabled
         onClicked: root.toggleEnabled()

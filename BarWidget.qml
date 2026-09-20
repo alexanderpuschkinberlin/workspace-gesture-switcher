@@ -8,6 +8,7 @@ BarWidget {
   id: root
   moduleName: "workspace-gesture-switcher"
   property bool enabled: true
+  property bool configured: false
   property int distance: 80
   property real cancelRatio: 0.20
   property int minSpeed: 10
@@ -27,6 +28,7 @@ BarWidget {
   }
 
   function load(data) {
+    configured = data.configured === true
     enabled = data.enabled === true
     distance = Number(data.distance)
     cancelRatio = Number(data.cancelRatio)
@@ -87,7 +89,7 @@ BarWidget {
     bar: root.bar
     text: "󰥸"
     active: root.enabled
-    tooltipText: root.enabled ? "Workspace Gesture Switcher enabled" : "Workspace Gesture Switcher disabled"
+    tooltipText: !root.configured ? "Workspace Gesture Switcher needs setup" : (root.enabled ? "Workspace Gesture Switcher enabled" : "Workspace Gesture Switcher disabled")
     onPressed: function(button) {
       if (button === Qt.LeftButton) root.toggle()
     }
