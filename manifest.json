@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "author": "adminap",
   "license": "MIT",
-  "description": "Control the three-finger workspace swipe from the Omarchy bar.",
+  "description": "Configure a macOS-style three-finger trackpad swipe for Hyprland workspaces from the Omarchy bar, with live controls for trigger distance, speed, cancellation, edge creation, and workspace wrapping.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "BarWidget.qml"
