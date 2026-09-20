@@ -9,6 +9,14 @@ and turn on or off without editing Hyprland configuration by hand.
 
 ![Workspace Gesture Switcher panel](screenshots/workspace-gesture-switcher-panel.png)
 
+## How it works
+
+Place three fingers on the trackpad and swipe horizontally. The gesture moves
+the active workspace in the direction of the swipe; the highlighted card in
+the diagram represents the workspace that becomes active.
+
+![Three fingers swipe on a trackpad to switch workspaces](screenshots/three-finger-workspace-swipe.png)
+
 ## Features
 
 - Enable or disable the three-finger workspace gesture from the top bar.
