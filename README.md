@@ -76,6 +76,28 @@ unchanged, and creates a one-time backup beside it named
 that marked block and is checked with `hyprctl configerrors`. If validation
 fails, the plugin restores the previous file automatically.
 
+## Remove the plugin
+
+First remove the bar widget:
+
+```bash
+omarchy plugin remove workspace-gesture-switcher --yes
+```
+
+Removing the widget deliberately leaves your Hyprland settings untouched. If
+you also want to remove the gesture, open `~/.config/hypr/input.lua` and delete
+only the block beginning with `-- BEGIN omarchy-gesture-control` and ending
+with `-- END omarchy-gesture-control`. Then apply and check the configuration:
+
+```bash
+hyprctl reload
+hyprctl configerrors
+```
+
+The optional one-time backup,
+`~/.config/hypr/input.lua.backup-workspace-gesture-switcher`, is never removed
+automatically. Keep it for recovery or delete it when you no longer need it.
+
 ## What the controls mean
 
 | Control | Effect |
