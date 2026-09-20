@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config="$HOME/.config/hypr/input.lua"
+command="${1:-status}"
+shift || true
+
+python3 - "$config" "$command" "$@" <<'PY'
+import json
+import pathlib
+import re
+import subprocess
+import sys
+
+path = pathlib.Path(sys.argv[1])
+command = sys.argv[2]
+args = sys.argv[3:]
+begin = "-- BEGIN omarchy-gesture-control"
+end = "-- END omarchy-gesture-control"
+defaults = {
+    "enabled": True,
+    "distance": 80,
+    "cancelRatio": 0.20,
+    "minSpeed": 10,
+    "createNew": True,
+    "forever": False,
+}
+
+def read_settings():
+    text = path.read_text()
+    match = re.search(re.escape(begin) + r"(.*?)" + re.escape(end), text, re.S)
+    values = defaults.copy()
+    if not match:
+        return values
+    block = match.group(1)
+    values["enabled"] = bool(re.search(r"^\s*hl\.gesture\(", block, re.M))
+    patterns = {
+        "distance": (r"workspace_swipe_distance\s*=\s*(\d+)", int),
+        "cancelRatio": (r"workspace_swipe_cancel_ratio\s*=\s*([0-9.]+)", float),
+        "minSpeed": (r"workspace_swipe_min_speed_to_force\s*=\s*(\d+)", int),
+        "createNew": (r"workspace_swipe_create_new\s*=\s*(true|false)", lambda x: x == "true"),
+        "forever": (r"workspace_swipe_forever\s*=\s*(true|false)", lambda x: x == "true"),
+    }
+    for key, (pattern, convert) in patterns.items():
+        found = re.search(pattern, block)
+        if found:
+            values[key] = convert(found.group(1))
+    return values
+
+def block(values):
+    gesture = 'hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })\n' if values["enabled"] else ""
+    return f'''{begin}
+{gesture}hl.config({{
+  gestures = {{
+    workspace_swipe_distance = {values["distance"]},
+    workspace_swipe_cancel_ratio = {values["cancelRatio"]:.2f},
+    workspace_swipe_min_speed_to_force = {values["minSpeed"]},
+    workspace_swipe_create_new = {str(values["createNew"]).lower()},
+    workspace_swipe_forever = {str(values["forever"]).lower()},
+  }},
+}})
+{end}'''
+
+def validate(values):
+    if not 20 <= values["distance"] <= 800:
+        raise ValueError("distance must be between 20 and 800")
+    if not 0.05 <= values["cancelRatio"] <= 0.95:
+        raise ValueError("cancelRatio must be between 0.05 and 0.95")
+    if not 0 <= values["minSpeed"] <= 100:
+        raise ValueError("minSpeed must be between 0 and 100")
+
+if command == "status":
+    print(json.dumps(read_settings()))
+    raise SystemExit(0)
+
+if command != "set" or len(args) != 2:
+    raise SystemExit("Usage: gesture-control status | set <enabled|distance|cancelRatio|minSpeed|createNew|forever> <value>")
+
+key, raw = args
+values = read_settings()
+if key in ("enabled", "createNew", "forever"):
+    if raw not in ("true", "false"):
+        raise ValueError(f"{key} must be true or false")
+    values[key] = raw == "true"
+elif key in ("distance", "minSpeed"):
+    values[key] = int(raw)
+elif key == "cancelRatio":
+    values[key] = float(raw)
+else:
+    raise ValueError(f"unknown setting: {key}")
+validate(values)
+
+text = path.read_text()
+pattern = re.escape(begin) + r".*?" + re.escape(end)
+if not re.search(pattern, text, re.S):
+    raise SystemExit("managed gesture block is missing from " + str(path))
+path.write_text(re.sub(pattern, block(values), text, count=1, flags=re.S))
+result = subprocess.run(["hyprctl", "reload"], text=True, capture_output=True)
+if result.returncode:
+    raise SystemExit(result.stderr.strip() or result.stdout.strip() or "Hyprland reload failed")
+errors = subprocess.run(["hyprctl", "configerrors"], text=True, capture_output=True)
+if errors.stdout.strip() or errors.returncode:
+    raise SystemExit(errors.stdout.strip() or errors.stderr.strip() or "Hyprland configuration validation failed")
+print(json.dumps(values))
+PY

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "workspace-gesture-switcher",
+  "name": "Workspace Gesture Switcher",
+  "version": "1.0.0",
+  "author": "adminap",
+  "license": "MIT",
+  "description": "Control the three-finger workspace swipe from the Omarchy bar.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Workspace Gesture Switcher",
+    "description": "Enable and tune the three finger workspace swipe.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

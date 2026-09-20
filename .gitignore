@@ -1,0 +1,6 @@
+# Qt Creator and build artefacts
+*.pro.user
+*.qmlc
+
+# Local editor metadata
+.vscode/
