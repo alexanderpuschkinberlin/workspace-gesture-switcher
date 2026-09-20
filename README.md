@@ -7,6 +7,21 @@ It is designed especially for people moving from macOS to Omarchy: the goal is
 to make the familiar trackpad-based workspace workflow easy to discover, tune,
 and turn on or off without editing Hyprland configuration by hand.
 
+## Quick start — one required click after installation
+
+1. Install and enable the plugin:
+
+   ```bash
+   omarchy plugin add https://github.com/alexanderpuschkinberlin/workspace-gesture-switcher.git --enable
+   ```
+
+2. Open **Workspace Gesture Switcher** from the right side of the top bar.
+3. Click **Set up and enable**.
+
+That explicit first click safely adds the required Hyprland configuration.
+Nothing else needs to be installed or configured manually. A one-time backup
+of `~/.config/hypr/input.lua` is created before the plugin changes it.
+
 ![Workspace Gesture Switcher panel](screenshots/workspace-gesture-switcher-panel.png)
 
 ## How it works
@@ -39,7 +54,7 @@ on a standard Omarchy installation.
 
 ## Install
 
-Once this repository is published on GitHub, install it with Omarchy:
+Install it with Omarchy:
 
 ```bash
 omarchy plugin add https://github.com/alexanderpuschkinberlin/workspace-gesture-switcher.git --enable
