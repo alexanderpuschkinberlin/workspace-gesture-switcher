@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "workspace-gesture-switcher",
   "name": "Workspace Gesture Switcher",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "adminap",
   "license": "MIT",
   "description": "Set up and configure a macOS-style three-finger trackpad workspace swipe from the Omarchy bar, with safe first-run Hyprland setup plus live sensitivity and workspace controls.",

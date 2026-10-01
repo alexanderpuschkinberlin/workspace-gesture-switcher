@@ -1,6 +1,8 @@
 # Qt Creator and build artefacts
 *.pro.user
 *.qmlc
+__pycache__/
+*.py[cod]
 
 # Local editor metadata
 .vscode/
