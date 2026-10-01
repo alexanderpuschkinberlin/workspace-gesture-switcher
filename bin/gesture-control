@@ -7,17 +7,21 @@ shift || true
 
 python3 - "$config" "$command" "$@" <<'PY'
 import json
+import errno
+import os
 import pathlib
 import re
-import shutil
+import secrets
+import stat
 import subprocess
 import sys
 
-path = pathlib.Path(sys.argv[1])
+path = pathlib.Path(os.path.abspath(os.path.expanduser(sys.argv[1])))
 command = sys.argv[2]
 args = sys.argv[3:]
 begin = "-- BEGIN omarchy-gesture-control"
 end = "-- END omarchy-gesture-control"
+max_config_bytes = 4 * 1024 * 1024
 defaults = {
     "enabled": False,
     "distance": 80,
@@ -27,13 +31,151 @@ defaults = {
     "forever": False,
 }
 
-def config_text():
-    if not path.is_file():
-        raise SystemExit("Hyprland input configuration was not found at " + str(path))
-    return path.read_text()
+def file_state(info):
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
-def read_settings():
-    text = config_text()
+def open_config_directory():
+    try:
+        return os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    except OSError as error:
+        raise SystemExit(f"Cannot safely open Hyprland configuration directory {path.parent}: {error.strerror}")
+
+def read_config(directory_fd):
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path.name, flags, dir_fd=directory_fd)
+    except FileNotFoundError:
+        raise SystemExit("Hyprland input configuration was not found at " + str(path))
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise SystemExit("Refusing to follow a symbolic link at " + str(path))
+        raise SystemExit(f"Cannot safely open Hyprland input configuration {path}: {error.strerror}")
+
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise SystemExit("Hyprland input configuration is not a regular file: " + str(path))
+        if before.st_size > max_config_bytes:
+            raise SystemExit(f"Hyprland input configuration exceeds the {max_config_bytes}-byte safety limit")
+
+        chunks = []
+        remaining = max_config_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > max_config_bytes:
+            raise SystemExit(f"Hyprland input configuration exceeds the {max_config_bytes}-byte safety limit")
+
+        after = os.fstat(descriptor)
+        if file_state(before) != file_state(after):
+            raise SystemExit("Hyprland input configuration changed while it was being read; please try again")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SystemExit("Hyprland input configuration is not valid UTF-8")
+        return text, file_state(after), stat.S_IMODE(after.st_mode)
+    finally:
+        os.close(descriptor)
+
+def write_all(descriptor, data):
+    view = memoryview(data)
+    while view:
+        written = os.write(descriptor, view)
+        if written == 0:
+            raise OSError("short write while saving Hyprland input configuration")
+        view = view[written:]
+
+def create_temporary_file(directory_fd, mode, data):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    for _ in range(100):
+        name = f".{path.name}.workspace-gesture-switcher.{secrets.token_hex(8)}.tmp"
+        try:
+            descriptor = os.open(name, flags, 0o600, dir_fd=directory_fd)
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise RuntimeError("Could not create a unique temporary configuration file")
+
+    try:
+        os.fchmod(descriptor, mode)
+        write_all(descriptor, data)
+        os.fsync(descriptor)
+        state = file_state(os.fstat(descriptor))
+    except Exception:
+        os.close(descriptor)
+        try:
+            os.unlink(name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+        raise
+    os.close(descriptor)
+    return name, state
+
+def current_target_state(directory_fd):
+    try:
+        info = os.stat(path.name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        raise RuntimeError("Hyprland input configuration disappeared before it could be saved")
+    if not stat.S_ISREG(info.st_mode):
+        raise RuntimeError("Refusing to replace a non-regular Hyprland input configuration")
+    return file_state(info)
+
+def atomic_replace(directory_fd, text, expected_state, mode):
+    data = text.encode("utf-8")
+    if len(data) > max_config_bytes:
+        raise RuntimeError(f"Updated Hyprland input configuration exceeds the {max_config_bytes}-byte safety limit")
+    temporary_name, _ = create_temporary_file(directory_fd, mode, data)
+    try:
+        if current_target_state(directory_fd) != expected_state:
+            raise RuntimeError("Hyprland input configuration changed before it could be saved; please try again")
+        os.replace(temporary_name, path.name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+        os.fsync(directory_fd)
+        return current_target_state(directory_fd)
+    finally:
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+
+def create_backup(directory_fd, text, mode):
+    backup_name = path.name + ".backup-workspace-gesture-switcher"
+    try:
+        existing = os.stat(backup_name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if not stat.S_ISREG(existing.st_mode):
+            raise RuntimeError("Refusing to use a non-regular backup file: " + str(path.with_name(backup_name)))
+        return
+
+    temporary_name, _ = create_temporary_file(directory_fd, mode, text.encode("utf-8"))
+    try:
+        try:
+            os.link(
+                temporary_name,
+                backup_name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+            os.fsync(directory_fd)
+        except FileExistsError:
+            existing = os.stat(backup_name, dir_fd=directory_fd, follow_symlinks=False)
+            if not stat.S_ISREG(existing.st_mode):
+                raise RuntimeError("Refusing to use a non-regular backup file: " + str(path.with_name(backup_name)))
+    finally:
+        os.unlink(temporary_name, dir_fd=directory_fd)
+
+def read_settings(text):
     match = re.search(re.escape(begin) + r"(.*?)" + re.escape(end), text, re.S)
     values = defaults.copy()
     values["configured"] = bool(match)
@@ -85,14 +227,26 @@ def reload_and_validate():
         raise RuntimeError(errors.stdout.strip() or errors.stderr.strip() or "Hyprland configuration validation failed")
 
 if command == "status":
-    print(json.dumps(read_settings()))
+    directory_fd = open_config_directory()
+    try:
+        text, _, _ = read_config(directory_fd)
+    finally:
+        os.close(directory_fd)
+    print(json.dumps(read_settings(text)))
     raise SystemExit(0)
 
 if command != "set" or len(args) != 2:
     raise SystemExit("Usage: gesture-control status | set <enabled|distance|cancelRatio|minSpeed|createNew|forever> <value>")
 
 key, raw = args
-values = read_settings()
+directory_fd = open_config_directory()
+try:
+    text, original_state, original_mode = read_config(directory_fd)
+except BaseException:
+    os.close(directory_fd)
+    raise
+
+values = read_settings(text)
 configured = values.pop("configured")
 if key in ("enabled", "createNew", "forever"):
     if raw not in ("true", "false"):
@@ -106,25 +260,29 @@ else:
     raise ValueError(f"unknown setting: {key}")
 validate(values)
 
-text = config_text()
 pattern = re.escape(begin) + r".*?" + re.escape(end)
 if not configured:
     if key != "enabled" or not values["enabled"]:
         raise SystemExit("Turn on Workspace Gesture Switcher first to create its Hyprland configuration")
-    backup = path.with_name(path.name + ".backup-workspace-gesture-switcher")
-    if not backup.exists():
-        shutil.copy2(path, backup)
+    create_backup(directory_fd, text, original_mode)
     updated = text.rstrip() + "\n\n" + block(values) + "\n"
 else:
     updated = re.sub(pattern, block(values), text, count=1, flags=re.S)
 
-path.write_text(updated)
 try:
+    updated_state = atomic_replace(directory_fd, updated, original_state, original_mode)
     reload_and_validate()
 except Exception as error:
-    path.write_text(text)
-    subprocess.run(["hyprctl", "reload"], text=True, capture_output=True)
+    try:
+        if "updated_state" in locals():
+            atomic_replace(directory_fd, text, updated_state, original_mode)
+            subprocess.run(["hyprctl", "reload"], text=True, capture_output=True)
+    except Exception as rollback_error:
+        raise SystemExit(f"{error}; rollback failed safely: {rollback_error}")
+    finally:
+        os.close(directory_fd)
     raise SystemExit(str(error))
+os.close(directory_fd)
 values["configured"] = True
 print(json.dumps(values))
 PY
